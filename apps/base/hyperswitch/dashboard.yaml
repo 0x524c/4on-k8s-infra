@@ -1,0 +1,105 @@
+---
+# Source: hyperswitch-hml/templates/dashboard.yaml
+# The dashboard, the compose service dashboard: our build of the Hyperswitch Control Center (image
+# hyperswitch-dashboard), configured by environment overrides of its own config; it calls the API at the public
+# address. NodePort for the load balancer.
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard
+  labels:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/part-of: hyperswitch
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hyperswitch-hml-0.1.0
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: dashboard
+  ports:
+    - name: http
+      port: 9000
+      targetPort: http
+      nodePort: 30090
+---
+# Source: hyperswitch-hml/templates/dashboard.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard
+  labels:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/part-of: hyperswitch
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hyperswitch-hml-0.1.0
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hyperswitch-hml
+      app.kubernetes.io/instance: hyperswitch-hml
+      app.kubernetes.io/component: dashboard
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hyperswitch-hml
+        app.kubernetes.io/instance: hyperswitch-hml
+        app.kubernetes.io/component: dashboard
+        app.kubernetes.io/part-of: hyperswitch
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: hyperswitch-hml-0.1.0
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      containers:
+        - name: dashboard
+          image: 405712027313.dkr.ecr.sa-east-1.amazonaws.com/hyperswitch-hml-dashboard:2024.01.10.0-6318-ge65f9eea4-cc1.39.0-f4e56fcb0f
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: default__endpoints__api_url
+              value: "https://api-hml.rl.be4on.com"
+            - name: default__endpoints__sdk_url
+              value: ""
+            - name: default__endpoints__mixpanel_token
+              value: ""
+            - name: default__features__mixpanel
+              value: "false"
+          ports:
+            - name: http
+              containerPort: 9000
+          # The compose healthcheck: GET /health/ready answers 200.
+          startupProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            limits:
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false

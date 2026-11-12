@@ -1,0 +1,6 @@
+# Applied once by scripts/hml-platform.sh after Argo CD is installed; Argo CD does not manage its own project.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - appproject.yaml
+  - applications.yaml

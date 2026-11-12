@@ -1,0 +1,122 @@
+---
+# Source: hyperswitch-hml/templates/redis.yaml
+# Redis 7, the compose service redis: the router's cache and Superposition's. The password reaches redis-server on
+# stdin (its configuration from "-"), never in its arguments; the other options are the compose file's. The image's
+# entrypoint still runs, so the server drops to the redis user as in the compose service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: redis
+    app.kubernetes.io/part-of: hyperswitch
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hyperswitch-hml-0.1.0
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+# Source: hyperswitch-hml/templates/redis.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  labels:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: redis
+    app.kubernetes.io/part-of: hyperswitch
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hyperswitch-hml-0.1.0
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hyperswitch-hml
+      app.kubernetes.io/instance: hyperswitch-hml
+      app.kubernetes.io/component: redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hyperswitch-hml
+        app.kubernetes.io/instance: hyperswitch-hml
+        app.kubernetes.io/component: redis
+        app.kubernetes.io/part-of: hyperswitch
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: hyperswitch-hml-0.1.0
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: redis
+          image: docker.io/redis:7@sha256:2e3eb11462c4e3759e6972678dd051d150ff54b1e60714b3c33b701260172a90
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              exec docker-entrypoint.sh redis-server - --appendonly yes --maxmemory 1gb --maxmemory-policy allkeys-lru <<EOF
+              requirepass $REDIS_PASSWORD
+              EOF
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hyperswitch-secrets
+                  key: REDIS_PASSWORD
+            # redis-cli of the probes reads the password from here.
+            - name: REDISCLI_AUTH
+              value: $(REDIS_PASSWORD)
+          ports:
+            - name: redis
+              containerPort: 6379
+          # The compose healthcheck: PING answers PONG with the password.
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "redis-cli ping | grep -q '^PONG$'"]
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "redis-cli ping | grep -q '^PONG$'"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            limits:
+              memory: 1536Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: hyperswitch-hml
+          app.kubernetes.io/instance: hyperswitch-hml
+          app.kubernetes.io/component: redis
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: "gp3"
+        resources:
+          requests:
+            storage: 5Gi

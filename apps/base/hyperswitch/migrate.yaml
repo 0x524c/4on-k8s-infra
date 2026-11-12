@@ -1,0 +1,70 @@
+---
+# Source: hyperswitch-hml/templates/migrate.yaml
+# The migrations, the compose service migrate: the fork's migrations/ directory applied with the pinned diesel_cli of
+# the migrate image, once Postgres answers. A Job of each release revision (its name carries the revision, so every
+# install and upgrade runs it, as compose runs migrate on every up, and Helm removes the one of the revision before).
+# Not a Helm hook: Postgres is part of the release, so a pre-install hook could never reach it, and a post-install hook
+# deadlocks under helm --wait (Helm waits for the router before it runs the hook the router waits for). The order of the
+# compose depends_on is kept by the init container wait-migrations of the router and both schedulers: a pod of a new
+# revision starts only when no migration of its revision's migrate image is pending, while the pods of the revision
+# before keep serving.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate-1
+  labels:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: migrate
+    app.kubernetes.io/part-of: hyperswitch
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hyperswitch-hml-0.1.0
+spec:
+  backoffLimit: 6
+  activeDeadlineSeconds: 1200
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hyperswitch-hml
+        app.kubernetes.io/instance: hyperswitch-hml
+        app.kubernetes.io/component: migrate
+        app.kubernetes.io/part-of: hyperswitch
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: hyperswitch-hml-0.1.0
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      initContainers:
+        - name: wait-postgres
+          image: docker.io/postgres:17
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "until pg_isready -q -h postgres -p 5432; do echo 'migrate: waiting for postgres'; sleep 2; done"]
+          resources:
+            limits:
+              memory: 64Mi
+            requests:
+              cpu: 10m
+              memory: 16Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+      containers:
+        - name: migrate
+          image: 405712027313.dkr.ecr.sa-east-1.amazonaws.com/hyperswitch-hml-migrate:2024.01.10.0-6318-ge65f9eea4
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hyperswitch-secrets
+                  key: DB_PASSWORD
+            - name: DATABASE_URL
+              value: postgresql://db_user:$(DB_PASSWORD)@postgres:5432/hyperswitch_db
+          resources:
+            limits:
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false

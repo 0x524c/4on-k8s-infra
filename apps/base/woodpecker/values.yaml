@@ -1,0 +1,46 @@
+# Woodpecker CI for the HML cluster: chart woodpecker 3.7.6 (app v3.20.1) from oci://ghcr.io/woodpecker-ci/helm, installed
+# by the Argo CD Application `woodpecker` (apps/hml/argocd-apps) with this file and then apps/hml/woodpecker/values.yaml.
+#
+# Two Secrets are made outside Git by scripts/hml-platform.sh from Secrets Manager (hyperswitch-hml/*) and are named here:
+#   woodpecker-agent-secret   WOODPECKER_AGENT_SECRET; the chart's own createAgentSecret draws a new random value on every
+#                             render under Argo CD (there is no lookup in `helm template`), which would rotate it on each sync
+#   woodpecker-github-secret  WOODPECKER_GITHUB_CLIENT and WOODPECKER_GITHUB_SECRET of the GitHub OAuth app
+# Steps run as Pods of the namespace woodpecker. Nothing here is privileged and no step mounts a container socket; the
+# workflows of this repository only validate configuration and ask Argo CD to sync, so the repositories that hold source
+# code are never cloned in this cluster.
+nameOverride: ""
+fullnameOverride: ""
+server:
+  enabled: true
+  nameOverride: server
+  fullnameOverride: woodpecker-server
+  createAgentSecret: false
+  extraSecretNamesForEnvFrom:
+    - woodpecker-agent-secret
+    - woodpecker-github-secret
+  env:
+    WOODPECKER_GITHUB: "true"
+    WOODPECKER_OPEN: "false"
+    WOODPECKER_SERVER: "woodpecker-server:9000"
+    WOODPECKER_GRPC_VERIFY: "false"
+    WOODPECKER_GRPC_MAX_MSG_SIZE: "16777216"
+    WOODPECKER_LOG_LEVEL: info
+  service:
+    type: ClusterIP
+agent:
+  enabled: true
+  nameOverride: agent
+  fullnameOverride: woodpecker-agent
+  replicaCount: 1
+  mapAgentSecret: false
+  extraSecretNamesForEnvFrom:
+    - woodpecker-agent-secret
+  env:
+    WOODPECKER_SERVER: "woodpecker-server:9000"
+    WOODPECKER_BACKEND: kubernetes
+    WOODPECKER_BACKEND_K8S_NAMESPACE: woodpecker
+    # gp3 volumes are ReadWriteOnce only; with false the pipeline volume is RWO instead of the default RWX.
+    WOODPECKER_BACKEND_K8S_STORAGE_RWX: "false"
+    WOODPECKER_BACKEND_K8S_STORAGE_CLASS: gp3
+    WOODPECKER_BACKEND_K8S_VOLUME_SIZE: 5G
+    WOODPECKER_MAX_WORKFLOWS: "2"

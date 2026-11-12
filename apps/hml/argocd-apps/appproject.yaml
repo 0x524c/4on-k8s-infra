@@ -1,0 +1,38 @@
+# The one Argo CD project of the HML cluster: the deploy repository and the Woodpecker chart as sources, the namespaces
+# hyperswitch and woodpecker of this cluster as destinations, and only the cluster-scoped kinds the stack really has
+# (the namespace, the gp3 StorageClass, and Fluent Bit's read-only ClusterRole and its binding).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: hml
+  namespace: argocd
+spec:
+  description: HML environment on EKS (cluster hyperswitch-hml)
+  sourceRepos:
+    - git@github.com:0x524c/4on-k8s-infra.git
+    - ghcr.io/woodpecker-ci/helm
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: hyperswitch
+    - server: https://kubernetes.default.svc
+      namespace: woodpecker
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: storage.k8s.io
+      kind: StorageClass
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  # The token the Woodpecker workflow `deploy-hml` uses: it can read and sync the applications of this project and nothing
+  # else. Made once with `argocd proj role create-token hml deployer`.
+  roles:
+    - name: deployer
+      description: the CI workflow that syncs the HML applications
+      policies:
+        - p, proj:hml:deployer, applications, get, hml/*, allow
+        - p, proj:hml:deployer, applications, sync, hml/*, allow

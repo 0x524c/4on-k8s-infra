@@ -1,0 +1,45 @@
+# No syncPolicy.automated: a sync is a click in the UI or the `deploy-hml` workflow (`argocd app sync`), and a manual sync
+# does not prune unless asked to. No resources-finalizer: deleting an Application leaves its resources alone.
+# Order on a new cluster: hyperswitch-hml first (it makes the gp3 StorageClass), then woodpecker (its volumes use it).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hyperswitch-hml
+  namespace: argocd
+spec:
+  project: hml
+  source:
+    repoURL: git@github.com:0x524c/4on-k8s-infra.git
+    targetRevision: HEAD
+    path: apps/hml/hyperswitch
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: hyperswitch
+  revisionHistoryLimit: 3
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: woodpecker
+  namespace: argocd
+spec:
+  project: hml
+  sources:
+    - repoURL: ghcr.io/woodpecker-ci/helm
+      chart: woodpecker
+      targetRevision: 3.7.6
+      helm:
+        releaseName: woodpecker
+        valueFiles:
+          - $values/apps/base/woodpecker/values.yaml
+          - $values/apps/hml/woodpecker/values.yaml
+    - repoURL: git@github.com:0x524c/4on-k8s-infra.git
+      targetRevision: HEAD
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: woodpecker
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+  revisionHistoryLimit: 3

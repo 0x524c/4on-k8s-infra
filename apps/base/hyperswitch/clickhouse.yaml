@@ -1,0 +1,157 @@
+---
+# Source: hyperswitch-hml/templates/clickhouse.yaml
+# ClickHouse, the compose service clickhouse: user default with CLICKHOUSE_PASSWORD, refused to start without it,
+# and the compose file's configuration (files/clickhouse-zz-hyperswitch.xml, the content of its config clickhouse):
+# memory under the 2Gi limit, logs on the console only, of the system log tables only query_log, kept 7 days.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickhouse-config
+  labels:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: clickhouse
+    app.kubernetes.io/part-of: hyperswitch
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hyperswitch-hml-0.1.0
+data:
+  zz-hyperswitch.xml: |
+    <clickhouse>
+      <logger><level>warning</level><console>1</console><log remove="1"/><errorlog remove="1"/></logger>
+      <max_server_memory_usage>1610612736</max_server_memory_usage>
+      <mark_cache_size>268435456</mark_cache_size>
+      <index_mark_cache_size>67108864</index_mark_cache_size>
+      <query_log><ttl>event_date + INTERVAL 7 DAY</ttl></query_log>
+      <trace_log remove="1"/><query_thread_log remove="1"/><query_views_log remove="1"/><part_log remove="1"/>
+      <text_log remove="1"/><metric_log remove="1"/><asynchronous_metric_log remove="1"/><crash_log remove="1"/>
+      <opentelemetry_span_log remove="1"/><processors_profile_log remove="1"/><asynchronous_insert_log remove="1"/>
+      <backup_log remove="1"/><blob_storage_log remove="1"/>
+      <error_log remove="1"/><background_schedule_pool_log remove="1"/><query_metric_log remove="1"/>
+      <instrumentation_trace_log remove="1"/><iceberg_metadata_log remove="1"/><delta_lake_metadata_log remove="1"/>
+      <s3queue_log remove="1"/><aggregated_zookeeper_log remove="1"/><zookeeper_connection_log remove="1"/>
+    </clickhouse>
+    
+---
+# Source: hyperswitch-hml/templates/clickhouse.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse
+  labels:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: clickhouse
+    app.kubernetes.io/part-of: hyperswitch
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hyperswitch-hml-0.1.0
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: clickhouse
+  ports:
+    - name: http
+      port: 8123
+      targetPort: http
+---
+# Source: hyperswitch-hml/templates/clickhouse.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clickhouse
+  labels:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: clickhouse
+    app.kubernetes.io/part-of: hyperswitch
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hyperswitch-hml-0.1.0
+spec:
+  serviceName: clickhouse
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hyperswitch-hml
+      app.kubernetes.io/instance: hyperswitch-hml
+      app.kubernetes.io/component: clickhouse
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hyperswitch-hml
+        app.kubernetes.io/instance: hyperswitch-hml
+        app.kubernetes.io/component: clickhouse
+        app.kubernetes.io/part-of: hyperswitch
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: hyperswitch-hml-0.1.0
+      annotations:
+        checksum/config: a65074818b60c12a9ccd7393d8acc9527e87d3f6b944811005c0dc5d1bd75b31
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: clickhouse
+          image: docker.io/clickhouse/clickhouse-server:26.8.36.3@sha256:d426d2f612e1e189c90f9a3f8dcd85a03c6851273833817a296bb327e63aa7a7
+          imagePullPolicy: IfNotPresent
+          command: ["bash", "-c", '[ -n "$CLICKHOUSE_PASSWORD" ] || { echo "clickhouse: CLICKHOUSE_PASSWORD is not set (the Secret hyperswitch-secrets holds it)" >&2; exit 1; }; exec /entrypoint.sh "$@"', "clickhouse"]
+          env:
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hyperswitch-secrets
+                  key: CLICKHOUSE_PASSWORD
+            - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
+              value: "0"
+          ports:
+            - name: http
+              containerPort: 8123
+          # The compose healthcheck: GET /ping answers Ok.
+          startupProbe:
+            exec:
+              command: ["bash", "-c", 'exec 3<>/dev/tcp/127.0.0.1/8123 && printf "GET /ping HTTP/1.0\r\n\r\n" >&3 && grep -q "^Ok" <&3']
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: ["bash", "-c", 'exec 3<>/dev/tcp/127.0.0.1/8123 && printf "GET /ping HTTP/1.0\r\n\r\n" >&3 && grep -q "^Ok" <&3']
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            exec:
+              command: ["bash", "-c", 'exec 3<>/dev/tcp/127.0.0.1/8123 && printf "GET /ping HTTP/1.0\r\n\r\n" >&3 && grep -q "^Ok" <&3']
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            limits:
+              memory: 2Gi
+            requests:
+              cpu: 100m
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/clickhouse
+            - name: config
+              mountPath: /etc/clickhouse-server/config.d/zz-hyperswitch.xml
+              subPath: zz-hyperswitch.xml
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: clickhouse-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: hyperswitch-hml
+          app.kubernetes.io/instance: hyperswitch-hml
+          app.kubernetes.io/component: clickhouse
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: "gp3"
+        resources:
+          requests:
+            storage: 30Gi

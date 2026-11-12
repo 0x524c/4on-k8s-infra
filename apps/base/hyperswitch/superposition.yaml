@@ -1,0 +1,119 @@
+---
+# Source: hyperswitch-hml/templates/superposition.yaml
+# Superposition, the compose service superposition: the router's configuration service. Its own database lives inside
+# its container, so a new container starts empty and the seed Job writes the fork's seed into it again (README.md,
+# section Operations).
+apiVersion: v1
+kind: Service
+metadata:
+  name: superposition
+  labels:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: superposition
+    app.kubernetes.io/part-of: hyperswitch
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hyperswitch-hml-0.1.0
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: superposition
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# Source: hyperswitch-hml/templates/superposition.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: superposition
+  labels:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: superposition
+    app.kubernetes.io/part-of: hyperswitch
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hyperswitch-hml-0.1.0
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hyperswitch-hml
+      app.kubernetes.io/instance: hyperswitch-hml
+      app.kubernetes.io/component: superposition
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hyperswitch-hml
+        app.kubernetes.io/instance: hyperswitch-hml
+        app.kubernetes.io/component: superposition
+        app.kubernetes.io/part-of: hyperswitch
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: hyperswitch-hml-0.1.0
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      # The compose service starts once Redis is healthy: Superposition stops at start when Redis does not answer.
+      initContainers:
+        - name: wait-redis
+          image: docker.io/redis:7@sha256:2e3eb11462c4e3759e6972678dd051d150ff54b1e60714b3c33b701260172a90
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "until redis-cli -h redis ping 2>/dev/null | grep -q '^PONG$'; do echo 'wait-redis: Redis does not answer yet'; sleep 2; done"]
+          env:
+            - name: REDISCLI_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: hyperswitch-secrets
+                  key: REDIS_PASSWORD
+          resources:
+            limits:
+              memory: 64Mi
+            requests:
+              cpu: 10m
+              memory: 16Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+      containers:
+        - name: superposition
+          image: ghcr.io/juspay/superposition-demo:0.113.0@sha256:51f3a310016879b7419ab64e6b6dbc81c739cdf5985f8f4cc19ba6f9384b2c6d
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: API_HOSTNAME
+              value: http://superposition:8080
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hyperswitch-secrets
+                  key: REDIS_PASSWORD
+            - name: REDIS_URL
+              value: redis://:$(REDIS_PASSWORD)@redis:6379
+          ports:
+            - name: http
+              containerPort: 8080
+          # The compose service has no healthcheck; its port answering is what the seed waits for.
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              cpu: 50m
+              memory: 256Mi

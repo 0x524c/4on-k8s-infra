@@ -1,0 +1,22 @@
+---
+# Source: hyperswitch-hml/templates/storageclass.yaml
+# The class of every volume of the chart on EKS: gp3 through the EBS CSI driver (an EKS add-on), encrypted, bound when
+# its pod is scheduled (the volume lands in the node's zone), expandable.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+  labels:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: storage
+    app.kubernetes.io/part-of: hyperswitch
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hyperswitch-hml-0.1.0
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  encrypted: "true"
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true

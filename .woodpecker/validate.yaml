@@ -1,0 +1,10 @@
+# Checks the deploy tree: every overlay builds, the manifests are valid, and the isolation rules of HML hold.
+# Runs for every push and pull request, by hand, and on a schedule (create the schedule in the Woodpecker UI).
+when:
+  - event: [push, pull_request, manual, cron]
+
+steps:
+  - name: validate
+    image: alpine/k8s:1.37.2
+    commands:
+      - bash scripts/validate.sh

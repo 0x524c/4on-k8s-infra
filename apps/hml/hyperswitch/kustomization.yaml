@@ -1,0 +1,37 @@
+# The HML environment on EKS (cluster hyperswitch-hml, account 405712027313, sa-east-1). Applied by Argo CD from the
+# Application hyperswitch-hml (apps/hml/argocd-apps); the pipeline's deploy step changes only the image tags below.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: hyperswitch
+
+resources:
+  - namespace.yaml
+  - ../../base/hyperswitch
+
+# The translator (Deployment, Service, NetworkPolicy and the db-init Job of its database). It stays off until the secrets
+# HYPERSWITCH_API_KEY and HYPERSWITCH_PROFILE_ID of the router merchant have values (they are made after the router runs);
+# then uncomment the line, commit, and sync.
+#components:
+#  - ../../../components/translator
+
+patches:
+  - path: argo-hooks.yaml
+    target:
+      kind: Job
+
+# Every image built from our sources comes from HML's own ECR repository (hyperswitch-hml-*), never from production's.
+images:
+  - name: 405712027313.dkr.ecr.sa-east-1.amazonaws.com/hyperswitch-hml-router
+    newTag: 2024.01.10.0-6318-ge65f9eea4
+  - name: 405712027313.dkr.ecr.sa-east-1.amazonaws.com/hyperswitch-hml-scheduler
+    newTag: 2024.01.10.0-6318-ge65f9eea4
+  - name: 405712027313.dkr.ecr.sa-east-1.amazonaws.com/hyperswitch-hml-migrate
+    newTag: 2024.01.10.0-6318-ge65f9eea4
+  - name: 405712027313.dkr.ecr.sa-east-1.amazonaws.com/hyperswitch-hml-seed
+    newTag: 2024.01.10.0-6318-ge65f9eea4
+  - name: 405712027313.dkr.ecr.sa-east-1.amazonaws.com/hyperswitch-hml-analytics-init
+    newTag: 2024.01.10.0-6318-ge65f9eea4
+  - name: 405712027313.dkr.ecr.sa-east-1.amazonaws.com/hyperswitch-hml-dashboard
+    newTag: 2024.01.10.0-6318-ge65f9eea4-cc1.39.0-f4e56fcb0f
+  - name: 405712027313.dkr.ecr.sa-east-1.amazonaws.com/hyperswitch-hml-saq-proxy
+    newTag: 544dca824d37

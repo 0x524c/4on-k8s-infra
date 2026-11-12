@@ -1,0 +1,138 @@
+---
+# Source: hyperswitch-hml/templates/eventbus.yaml
+# The event broker, the compose service eventbus: Redpanda, one node, one core, 512M for its allocator, developer mode
+# off (every write fsynced), topics never created on use (analytics-init creates the 16 the router writes). The
+# Service is headless and publishes the pod before it is ready: the broker advertises eventbus:9092 and eventbus:33145
+# and must reach its own name while it starts.
+apiVersion: v1
+kind: Service
+metadata:
+  name: eventbus
+  labels:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: eventbus
+    app.kubernetes.io/part-of: hyperswitch
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hyperswitch-hml-0.1.0
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: eventbus
+  ports:
+    - name: kafka
+      port: 9092
+      targetPort: kafka
+    - name: rpc
+      port: 33145
+      targetPort: rpc
+    - name: admin
+      port: 9644
+      targetPort: admin
+---
+# Source: hyperswitch-hml/templates/eventbus.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: eventbus
+  labels:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: eventbus
+    app.kubernetes.io/part-of: hyperswitch
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hyperswitch-hml-0.1.0
+spec:
+  serviceName: eventbus
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hyperswitch-hml
+      app.kubernetes.io/instance: hyperswitch-hml
+      app.kubernetes.io/component: eventbus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hyperswitch-hml
+        app.kubernetes.io/instance: hyperswitch-hml
+        app.kubernetes.io/component: eventbus
+        app.kubernetes.io/part-of: hyperswitch
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: hyperswitch-hml-0.1.0
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        # The image runs as redpanda (101); the volume is made writable for it.
+        fsGroup: 101
+      containers:
+        - name: eventbus
+          image: docker.io/redpandadata/redpanda:v26.2.6@sha256:8b1076e0d61bfceb66594dc01536427ce0b529f8ead35fdab9763ab6085891ce
+          imagePullPolicy: IfNotPresent
+          command: ["bash", "-c", 'rpk redpanda config set redpanda.developer_mode false && exec rpk redpanda start "$@"', "eventbus"]
+          args:
+            - --smp=1
+            - --memory=512M
+            - --reserve-memory=0M
+            - --overprovisioned
+            - --check=false
+            - --node-id=0
+            - --kafka-addr=PLAINTEXT://0.0.0.0:9092
+            - --advertise-kafka-addr=PLAINTEXT://eventbus:9092
+            - --rpc-addr=0.0.0.0:33145
+            - --advertise-rpc-addr=eventbus:33145
+            - --default-log-level=warn
+          ports:
+            - name: kafka
+              containerPort: 9092
+            - name: rpc
+              containerPort: 33145
+            - name: admin
+              containerPort: 9644
+          # The compose healthcheck: the admin API's readiness.
+          startupProbe:
+            exec:
+              command: ["curl", "-sf", "http://127.0.0.1:9644/v1/status/ready"]
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: ["curl", "-sf", "http://127.0.0.1:9644/v1/status/ready"]
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            exec:
+              command: ["curl", "-sf", "http://127.0.0.1:9644/v1/status/ready"]
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            limits:
+              memory: 768Mi
+            requests:
+              cpu: 100m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/redpanda/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: hyperswitch-hml
+          app.kubernetes.io/instance: hyperswitch-hml
+          app.kubernetes.io/component: eventbus
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: "gp3"
+        resources:
+          requests:
+            storage: 10Gi

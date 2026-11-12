@@ -1,0 +1,58 @@
+---
+# Source: hyperswitch-hml/templates/analytics-init.yaml
+# analytics-init, the compose one-shot of the same name: waits for ClickHouse and the broker (at most 300 s), creates
+# the 16 topics and the 25 tables and views of compose/analytics/schema.sql that do not exist, and converges their
+# retention (analytics.retentionDays). A Job of each release revision (its name carries the revision; not a Helm hook,
+# for the reason in migrate.yaml), so every install and upgrade runs it, as the compose service runs on every up;
+# nothing waits for it.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: analytics-init-1
+  labels:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: analytics-init
+    app.kubernetes.io/part-of: hyperswitch
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hyperswitch-hml-0.1.0
+spec:
+  backoffLimit: 4
+  activeDeadlineSeconds: 1500
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hyperswitch-hml
+        app.kubernetes.io/instance: hyperswitch-hml
+        app.kubernetes.io/component: analytics-init
+        app.kubernetes.io/part-of: hyperswitch
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: hyperswitch-hml-0.1.0
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      containers:
+        - name: analytics-init
+          image: 405712027313.dkr.ecr.sa-east-1.amazonaws.com/hyperswitch-hml-analytics-init:2024.01.10.0-6318-ge65f9eea4
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hyperswitch-secrets
+                  key: CLICKHOUSE_PASSWORD
+            - name: ANALYTICS_RETENTION_DAYS
+              value: "90"
+            - name: CLICKHOUSE_URL
+              value: http://clickhouse:8123
+            - name: EVENTBUS_BROKERS
+              value: eventbus:9092
+          resources:
+            limits:
+              memory: 128Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false

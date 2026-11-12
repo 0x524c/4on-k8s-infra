@@ -1,0 +1,159 @@
+---
+# Source: hyperswitch-hml/templates/seed.yaml
+# The seed, the compose service seed: the fork's seed data written into Superposition by seed-once.sh, which writes
+# nothing when Superposition already holds this seed. Its state file is on a volume of its own, like the compose
+# volume seed_state. A Job of each release revision (its name carries the revision; not a Helm hook, for the reason in
+# migrate.yaml), which waits for Superposition itself; the router waits for the seed in its init container wait-seed,
+# like the compose service.
+#
+# Superposition keeps its database inside its container, so a new container (a restart, a rescheduled pod, a node
+# reboot) starts empty, where the compose service keeps its data across a restart. The CronJob seed-guard runs the same
+# seed-once.sh every seed.guardSchedule: it writes nothing while Superposition holds the seed and seeds it again when
+# it lost it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: seed-state
+  labels:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: seed
+    app.kubernetes.io/part-of: hyperswitch
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hyperswitch-hml-0.1.0
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: "gp3"
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Source: hyperswitch-hml/templates/seed.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seed-1
+  labels:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: seed
+    app.kubernetes.io/part-of: hyperswitch
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hyperswitch-hml-0.1.0
+spec:
+  backoffLimit: 4
+  activeDeadlineSeconds: 1200
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hyperswitch-hml
+        app.kubernetes.io/instance: hyperswitch-hml
+        app.kubernetes.io/component: seed
+        app.kubernetes.io/part-of: hyperswitch
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: hyperswitch-hml-0.1.0
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: 405712027313.dkr.ecr.sa-east-1.amazonaws.com/hyperswitch-hml-seed:2024.01.10.0-6318-ge65f9eea4
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SUPERPOSITION_URL
+              value: http://superposition:8080
+            - name: SEED_FILE
+              value: /seed.toml
+            - name: WORKSPACE_ID
+              value: dev
+            - name: ORG_ID
+              value: localorg
+            - name: SEED_STATE_FILE
+              value: /state/seeded
+            # Up to 10 minutes for Superposition to answer (its container starts its own database first).
+            - name: MAX_RETRIES
+              value: "300"
+          resources:
+            limits:
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 32Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - name: state
+              mountPath: /state
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: seed-state
+---
+# Source: hyperswitch-hml/templates/seed.yaml
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: seed-guard
+  labels:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: seed
+    app.kubernetes.io/part-of: hyperswitch
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hyperswitch-hml-0.1.0
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 900
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: hyperswitch-hml
+            app.kubernetes.io/instance: hyperswitch-hml
+            app.kubernetes.io/component: seed
+            app.kubernetes.io/part-of: hyperswitch
+            app.kubernetes.io/managed-by: Helm
+            helm.sh/chart: hyperswitch-hml-0.1.0
+        spec:
+          enableServiceLinks: false
+          automountServiceAccountToken: false
+          restartPolicy: OnFailure
+          containers:
+            - name: seed
+              image: 405712027313.dkr.ecr.sa-east-1.amazonaws.com/hyperswitch-hml-seed:2024.01.10.0-6318-ge65f9eea4
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: SUPERPOSITION_URL
+                  value: http://superposition:8080
+                - name: SEED_FILE
+                  value: /seed.toml
+                - name: WORKSPACE_ID
+                  value: dev
+                - name: ORG_ID
+                  value: localorg
+                - name: SEED_STATE_FILE
+                  value: /state/seeded
+                # Up to 10 minutes for Superposition to answer (its container starts its own database first).
+                - name: MAX_RETRIES
+                  value: "300"
+              resources:
+                limits:
+                  memory: 256Mi
+                requests:
+                  cpu: 50m
+                  memory: 32Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+              volumeMounts:
+                - name: state
+                  mountPath: /state
+          volumes:
+            - name: state
+              persistentVolumeClaim:
+                claimName: seed-state

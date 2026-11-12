@@ -1,0 +1,349 @@
+---
+# Source: hyperswitch-hml/templates/router.yaml
+# The router, the compose service router: the fork's binary with the fork's config file and the environment of the
+# compose x-app-env anchor (_helpers.tpl, hs.appEnv). Like the compose service it starts only after the migrations
+# and the seed completed (init containers wait-migrations and wait-seed). NodePort for the load balancer.
+apiVersion: v1
+kind: Service
+metadata:
+  name: router
+  labels:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: router
+    app.kubernetes.io/part-of: hyperswitch
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hyperswitch-hml-0.1.0
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: router
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      nodePort: 30080
+---
+# Source: hyperswitch-hml/templates/router.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: router
+  labels:
+    app.kubernetes.io/name: hyperswitch-hml
+    app.kubernetes.io/instance: hyperswitch-hml
+    app.kubernetes.io/component: router
+    app.kubernetes.io/part-of: hyperswitch
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: hyperswitch-hml-0.1.0
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hyperswitch-hml
+      app.kubernetes.io/instance: hyperswitch-hml
+      app.kubernetes.io/component: router
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hyperswitch-hml
+        app.kubernetes.io/instance: hyperswitch-hml
+        app.kubernetes.io/component: router
+        app.kubernetes.io/part-of: hyperswitch
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: hyperswitch-hml-0.1.0
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      initContainers:
+        - name: wait-migrations
+          image: 405712027313.dkr.ecr.sa-east-1.amazonaws.com/hyperswitch-hml-migrate:2024.01.10.0-6318-ge65f9eea4
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              until [ "$(/root/.cargo/bin/diesel migration --database-url "$DATABASE_URL" pending --migration-dir /migrations --config-file /etc/diesel-empty.toml 2>/dev/null)" = false ]; do
+                echo "wait-migrations: migrations pending or database not ready"; sleep 3
+              done
+              echo "wait-migrations: every migration is applied"
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hyperswitch-secrets
+                  key: DB_PASSWORD
+            - name: DATABASE_URL
+              value: postgresql://db_user:$(DB_PASSWORD)@postgres:5432/hyperswitch_db
+          resources:
+            limits:
+              memory: 64Mi
+            requests:
+              cpu: 10m
+              memory: 16Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+        # The seed is complete when the Deja sampler resolves, the check the fork's seed script ends with.
+        - name: wait-seed
+          image: 405712027313.dkr.ecr.sa-east-1.amazonaws.com/hyperswitch-hml-router:2024.01.10.0-6318-ge65f9eea4
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - |
+              until curl -sS --max-time 10 -X POST http://superposition:8080/config/resolve -H 'Content-Type: application/json' \
+                  -H 'x-org-id: localorg' -H 'x-workspace: dev' -d '{"context": {"path": "/payments", "method": "POST"}}' 2>/dev/null \
+                  | grep -Eq '"deja_record" *: *true'; do
+                echo "wait-seed: Superposition does not hold the seed yet"; sleep 3
+              done
+              echo "wait-seed: the seed is in Superposition"
+          resources:
+            limits:
+              memory: 64Mi
+            requests:
+              cpu: 10m
+              memory: 16Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+      containers:
+        - name: router
+          image: 405712027313.dkr.ecr.sa-east-1.amazonaws.com/hyperswitch-hml-router:2024.01.10.0-6318-ge65f9eea4
+          imagePullPolicy: IfNotPresent
+          command: ["/local/bin/router", "-f", "/local/config/docker_compose.toml"]
+          env:
+            - name: RUN_ENV
+              value: sandbox
+            - name: RUST_MIN_STACK
+              value: "6291456"
+            - name: ROUTER__MASTER_DATABASE__HOST
+              value: postgres
+            - name: ROUTER__MASTER_DATABASE__PORT
+              value: "5432"
+            - name: ROUTER__MASTER_DATABASE__USERNAME
+              value: db_user
+            - name: ROUTER__MASTER_DATABASE__PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hyperswitch-secrets
+                  key: DB_PASSWORD
+            - name: ROUTER__MASTER_DATABASE__DBNAME
+              value: hyperswitch_db
+            - name: ROUTER__MASTER_DATABASE__MAX_POOL_SIZE
+              value: "5"
+            - name: ROUTER__REPLICA_DATABASE__HOST
+              value: postgres
+            - name: ROUTER__REPLICA_DATABASE__PORT
+              value: "5432"
+            - name: ROUTER__REPLICA_DATABASE__USERNAME
+              value: db_user
+            - name: ROUTER__REPLICA_DATABASE__PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hyperswitch-secrets
+                  key: DB_PASSWORD
+            - name: ROUTER__REPLICA_DATABASE__DBNAME
+              value: hyperswitch_db
+            - name: ROUTER__REPLICA_DATABASE__MAX_POOL_SIZE
+              value: "5"
+            - name: ROUTER__ACCOUNTS_DATABASE__HOST
+              value: postgres
+            - name: ROUTER__ACCOUNTS_DATABASE__PORT
+              value: "5432"
+            - name: ROUTER__ACCOUNTS_DATABASE__USERNAME
+              value: db_user
+            - name: ROUTER__ACCOUNTS_DATABASE__PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hyperswitch-secrets
+                  key: DB_PASSWORD
+            - name: ROUTER__ACCOUNTS_DATABASE__DBNAME
+              value: hyperswitch_db
+            - name: ROUTER__ACCOUNTS_DATABASE__MAX_POOL_SIZE
+              value: "5"
+            - name: ROUTER__GLOBAL_DATABASE__HOST
+              value: postgres
+            - name: ROUTER__GLOBAL_DATABASE__PORT
+              value: "5432"
+            - name: ROUTER__GLOBAL_DATABASE__USERNAME
+              value: db_user
+            - name: ROUTER__GLOBAL_DATABASE__PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hyperswitch-secrets
+                  key: DB_PASSWORD
+            - name: ROUTER__GLOBAL_DATABASE__DBNAME
+              value: hyperswitch_db
+            - name: ROUTER__GLOBAL_DATABASE__MAX_POOL_SIZE
+              value: "5"
+            - name: ROUTER__ANALYTICS__SQLX__HOST
+              value: postgres
+            - name: ROUTER__ANALYTICS__SQLX__PORT
+              value: "5432"
+            - name: ROUTER__ANALYTICS__SQLX__USERNAME
+              value: db_user
+            - name: ROUTER__ANALYTICS__SQLX__PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hyperswitch-secrets
+                  key: DB_PASSWORD
+            - name: ROUTER__ANALYTICS__SQLX__DBNAME
+              value: hyperswitch_db
+            - name: ROUTER__REDIS__HOST
+              value: redis
+            - name: ROUTER__REDIS__PORT
+              value: "6379"
+            - name: ROUTER__REDIS__PRIMARY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hyperswitch-secrets
+                  key: REDIS_PASSWORD
+            - name: ROUTER__REDIS__TLS_ENABLED
+              value: "false"
+            - name: ROUTER__SECRETS__ADMIN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hyperswitch-secrets
+                  key: ADMIN_API_KEY
+            - name: ROUTER__SECRETS__JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hyperswitch-secrets
+                  key: JWT_SECRET
+            - name: ROUTER__SECRETS__MASTER_ENC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hyperswitch-secrets
+                  key: MASTER_ENC_KEY
+            - name: ROUTER__API_KEYS__HASH_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hyperswitch-secrets
+                  key: API_KEYS_HASH_KEY
+            - name: ROUTER__SUPERPOSITION__ENDPOINT
+              value: http://superposition:8080
+            # The fork's config has the mock locker on: saving a card would write its number in clear. Off: no card on file.
+            - name: ROUTER__LOCKER__LOCKER_ENABLED
+              value: "false"
+            - name: ROUTER__LOG__CONSOLE__LEVEL
+              value: "INFO"
+            - name: ROUTER__CONNECTORS__TRANSFEERA__BASE_URL
+              value: "https://api-sandbox.transfeera.com"
+            - name: ROUTER__CONNECTORS__TRANSFEERA__SECONDARY_BASE_URL
+              value: "https://login-api-sandbox.transfeera.com"
+            - name: ROUTER__CONNECTORS__TRANSFEERA__SANDBOX_BASE_URL
+              value: "https://api-sandbox.transfeera.com"
+            - name: ROUTER__CONNECTORS__TRANSFEERA__SANDBOX_SECONDARY_BASE_URL
+              value: "https://login-api-sandbox.transfeera.com"
+            - name: ROUTER__CONNECTORS__NIUBIZ__BASE_URL
+              value: "https://apisandbox.vnforappstest.com"
+            - name: ROUTER__CONNECTORS__NIUBIZ__SECONDARY_BASE_URL
+              value: "https://apiqas.vnforappstest.com"
+            - name: ROUTER__CONNECTORS__NIUBIZ__SANDBOX_BASE_URL
+              value: "https://apisandbox.vnforappstest.com"
+            - name: ROUTER__CONNECTORS__NIUBIZ__SANDBOX_SECONDARY_BASE_URL
+              value: "https://apiqas.vnforappstest.com"
+            - name: ROUTER__CONNECTORS__SAQ__BASE_URL
+              value: "https://saq-sandbox.invalid/"
+            - name: ROUTER__CONNECTORS__SAQ__SANDBOX_BASE_URL
+              value: "https://saq-sandbox.invalid/"
+            - name: ROUTER__CONNECTORS__ZRO__BASE_URL
+              value: "https://api-baas-hml.zrobank.xyz"
+            - name: ROUTER__CONNECTORS__ZRO__SANDBOX_BASE_URL
+              value: "https://api-baas-hml.zrobank.xyz"
+            - name: ROUTER__MULTITENANCY__TENANTS__PUBLIC__BASE_URL
+              value: "https://api-hml.rl.be4on.com"
+            - name: ROUTER__USER__BASE_URL
+              value: "https://dashboard-hml.rl.be4on.com"
+            - name: ROUTER__MULTITENANCY__TENANTS__PUBLIC__USER__CONTROL_CENTER_URL
+              value: "https://dashboard-hml.rl.be4on.com"
+            - name: ROUTER__CORS__WILDCARD_ORIGIN
+              value: "false"
+            - name: ROUTER__CORS__ORIGINS
+              value: "https://dashboard-hml.rl.be4on.com"
+            - name: ROUTER__USER__FORCE_TWO_FACTOR_AUTH
+              value: "true"
+            - name: ROUTER__EMAIL__ACTIVE_EMAIL_CLIENT
+              value: SMTP
+            - name: ROUTER__EMAIL__SENDER_EMAIL
+              value: "noreply@rl.be4on.com"
+            - name: ROUTER__EMAIL__RECON_RECIPIENT_EMAIL
+              value: "noreply@rl.be4on.com"
+            - name: ROUTER__EMAIL__PROD_INTENT_RECIPIENT_EMAIL
+              value: "noreply@rl.be4on.com"
+            - name: ROUTER__EMAIL__ALLOWED_UNVERIFIED_DAYS
+              value: "1"
+            - name: ROUTER__EMAIL__SMTP__HOST
+              value: "email-smtp.sa-east-1.amazonaws.com"
+            - name: ROUTER__EMAIL__SMTP__PORT
+              value: "587"
+            - name: ROUTER__EMAIL__SMTP__TIMEOUT
+              value: "10"
+            - name: ROUTER__EMAIL__SMTP__CONNECTION
+              value: "start_tls"
+            - name: ROUTER__EMAIL__SMTP__USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: hyperswitch-secrets
+                  key: SES_SMTP_USERNAME
+            - name: ROUTER__EMAIL__SMTP__PRIMARY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hyperswitch-secrets
+                  key: SES_SMTP_PASSWORD
+            - name: ROUTER__ANALYTICS__SOURCE
+              value: "combinedsqlx"
+            - name: ROUTER__ANALYTICS__CLICKHOUSE__HOST
+              value: http://clickhouse:8123
+            - name: ROUTER__ANALYTICS__CLICKHOUSE__USERNAME
+              value: default
+            - name: ROUTER__ANALYTICS__CLICKHOUSE__PRIMARY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hyperswitch-secrets
+                  key: CLICKHOUSE_PASSWORD
+            - name: ROUTER__EVENTS__SOURCE
+              value: "kafka"
+            - name: ROUTER__EVENTS__KAFKA__BROKERS
+              value: eventbus:9092
+            - name: ROUTER__EVENTS__KAFKA__LOG_EVENTS
+              value: "true"
+          ports:
+            - name: http
+              containerPort: 8080
+          # The compose healthcheck: GET /health (start period 30 s, every 10 s, 5 tries).
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            limits:
+              memory: 2Gi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false

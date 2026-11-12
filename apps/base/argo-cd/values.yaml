@@ -1,0 +1,17 @@
+# Argo CD for the HML cluster: chart argo-cd 10.18.0 (app v3.6.1) from https://argoproj.github.io/argo-helm, installed by
+# scripts/hml-platform.sh with this file and then apps/hml/argo-cd/values.yaml. The UI and the API are not exposed outside
+# the cluster: reach them with `kubectl port-forward svc/argocd-server -n argocd 8080:443`. Resources are tracked by the
+# tracking-id annotation, the Argo CD 3 default, so the chart's own app.kubernetes.io/instance labels never collide.
+dex:
+  enabled: false
+notifications:
+  enabled: false
+applicationSet:
+  enabled: false
+configs:
+  cm:
+    admin.enabled: true
+    exec.enabled: false
+  params:
+    # The Applications of the hml project sync by hand or from the pipeline; nothing polls faster than the default 3 minutes.
+    application.namespaces: ""

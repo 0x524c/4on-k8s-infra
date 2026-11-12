@@ -1,0 +1,30 @@
+# HML: the OAuth app of GitHub and the admin of this server are the owner's. WOODPECKER_HOST is the address GitHub sends
+# webhooks and the browser returns from the OAuth login to. Until a public name exists for it (a record in the 4ON zone,
+# a rule on the HML load balancer, a certificate name) the server is reached with
+#   kubectl port-forward svc/woodpecker-server -n woodpecker 8000:80
+# and the OAuth app's callback is http://localhost:8000/authorize; then only manual and cron runs work, since GitHub cannot
+# reach the server. Change the line below to the public https name when it exists (and the OAuth app's callback with it).
+server:
+  nodeSelector:
+    kubernetes.io/arch: amd64
+  env:
+    WOODPECKER_HOST: "http://localhost:8000"
+    WOODPECKER_ADMIN: "0x524c"
+    WOODPECKER_REPO_OWNERS: "0x524c"
+  persistentVolume:
+    enabled: true
+    size: 5Gi
+    storageClass: gp3
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}
+agent:
+  nodeSelector:
+    kubernetes.io/arch: amd64
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: gp3
+  resources:
+    requests: {cpu: 25m, memory: 32Mi}
+    limits: {memory: 128Mi}

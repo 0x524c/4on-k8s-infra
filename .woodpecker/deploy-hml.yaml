@@ -1,0 +1,24 @@
+# After a push to main that changes the HML overlay and its checks passed: ask Argo CD to sync the Application and wait for it.
+# The token is the project role `deployer` of the Argo CD project hml (get and sync on hml/* only), kept as the Woodpecker
+# secret argocd_token. Argo CD's API is reached inside the cluster, so nothing leaves it.
+when:
+  - event: push
+    branch: main
+    path:
+      include:
+        - apps/hml/hyperswitch/**
+
+depends_on:
+  - validate
+
+steps:
+  - name: sync-hyperswitch-hml
+    image: quay.io/argoproj/argocd:v3.6.1
+    environment:
+      ARGOCD_SERVER: argocd-server.argocd.svc.cluster.local
+      ARGOCD_OPTS: --insecure --grpc-web
+      ARGOCD_AUTH_TOKEN:
+        from_secret: argocd_token
+    commands:
+      - argocd app sync hyperswitch-hml
+      - argocd app wait hyperswitch-hml --sync --health --timeout 900

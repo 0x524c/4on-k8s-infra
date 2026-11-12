@@ -1,0 +1,10 @@
+# The one-shot Jobs of the stack (db-init, migrate, seed, analytics-init) are Argo CD sync hooks: they run on every sync and
+# the previous one is deleted first, because a Job's spec cannot be changed in place. The Jobs' names carry the revision
+# "1" of the chart render, which stays fixed here; the router waits for its migrations in an init container, not here.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: any
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
