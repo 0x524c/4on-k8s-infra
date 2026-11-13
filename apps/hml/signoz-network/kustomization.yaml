@@ -1,0 +1,6 @@
+# The network rule of the namespace signoz, a third source of the Argo CD Application `signoz`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: signoz
+resources:
+  - networkpolicy.yaml

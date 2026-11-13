@@ -1,6 +1,7 @@
 # No syncPolicy.automated: a sync is a click in the UI or the `deploy-hml` workflow (`argocd app sync`), and a manual sync
 # does not prune unless asked to. No resources-finalizer: deleting an Application leaves its resources alone.
-# Order on a new cluster: hyperswitch-hml first (it makes the gp3 StorageClass), then woodpecker (its volumes use it).
+# Order on a new cluster: hyperswitch-hml first (it makes the gp3 StorageClass), then woodpecker and signoz (their volumes use it),
+# then signoz-k8s-infra (the log agent sends to the SigNoz collector).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -39,6 +40,69 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: woodpecker
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+  revisionHistoryLimit: 3
+---
+# SigNoz: where the HML container logs are searched (decision of 2026-11-12, replacing Fluent Bit and the CloudWatch group
+# /hyperswitch-hml). ServerSideApply because the ClickHouse operator CRDs are larger than the annotation that a client-side
+# apply keeps; SkipDryRunOnMissingResource because the ClickHouseInstallation is in the same sync as its CRD.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: signoz
+  namespace: argocd
+spec:
+  project: hml
+  sources:
+    - repoURL: https://charts.signoz.io
+      chart: signoz
+      targetRevision: 0.149.0
+      helm:
+        releaseName: signoz
+        valueFiles:
+          - $values/apps/base/signoz/values.yaml
+          - $values/apps/hml/signoz/values.yaml
+    - repoURL: git@github.com:0x524c/4on-k8s-infra.git
+      targetRevision: HEAD
+      ref: values
+    - repoURL: git@github.com:0x524c/4on-k8s-infra.git
+      targetRevision: HEAD
+      path: apps/hml/signoz-network
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: signoz
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+  revisionHistoryLimit: 3
+---
+# The log agent of the namespace hyperswitch: one pod per node that sends each line to the SigNoz collector.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: signoz-k8s-infra
+  namespace: argocd
+spec:
+  project: hml
+  sources:
+    - repoURL: https://charts.signoz.io
+      chart: k8s-infra
+      targetRevision: 0.17.1
+      helm:
+        releaseName: signoz-k8s-infra
+        valueFiles:
+          - $values/apps/base/signoz/k8s-infra-values.yaml
+          - $values/apps/hml/signoz/k8s-infra-values.yaml
+    - repoURL: git@github.com:0x524c/4on-k8s-infra.git
+      targetRevision: HEAD
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: signoz
   syncPolicy:
     syncOptions:
       - CreateNamespace=true

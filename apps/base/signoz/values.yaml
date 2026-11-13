@@ -1,0 +1,36 @@
+# SigNoz for the HML cluster: chart signoz 0.149.0 (app v0.149.0) from https://charts.signoz.io, installed by the Argo CD
+# Application `signoz` (apps/hml/argocd-apps) with this file and then apps/hml/signoz/values.yaml. It holds the logs of the
+# containers of namespace hyperswitch (collected by the Application `signoz-k8s-infra`, k8s-infra-values.yaml) and gives the
+# search and the dashboards over them. Components: ClickHouse with one ZooKeeper, the SigNoz service, the SigNoz collector and
+# the schema migrator Job. Redpanda, PostgreSQL and the otel gateway of the chart are off (their defaults).
+#
+# The UI is not exposed: a ClusterIP service and no ingress, reached with `kubectl port-forward` (see
+# Docs/Arquitetura/hml-signoz-logs-2026-11-12.md). The first user to register becomes the administrator, so the owner registers
+# right after the first sync; later users join by invitation only (SMTP is off, so the administrator copies the invitation link).
+signoz:
+  replicaCount: 1
+  service:
+    type: ClusterIP
+  ingress:
+    enabled: false
+  env:
+    signoz_telemetrystore_provider: clickhouse
+    signoz_emailing_enabled: false
+    signoz_prometheus_active__query__tracker_enabled: false
+    signoz_alertmanager_provider: signoz
+    signoz_alertmanager_signoz_external__url: http://localhost:8080
+  persistence:
+    enabled: true
+    size: 1Gi
+
+clickhouse:
+  enabled: true
+  persistence:
+    enabled: true
+
+postgresql:
+  enabled: false
+redpanda:
+  enabled: false
+signoz-otel-gateway:
+  enabled: false

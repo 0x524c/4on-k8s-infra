@@ -73,40 +73,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: postgres-ingress-0
-  labels:
-    app.kubernetes.io/name: hyperswitch-hml
-    app.kubernetes.io/instance: hyperswitch-hml
-    app.kubernetes.io/component: network-policy
-    app.kubernetes.io/part-of: hyperswitch
-    app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: hyperswitch-hml-0.1.0
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/name: hyperswitch-hml
-      app.kubernetes.io/instance: hyperswitch-hml
-      app.kubernetes.io/component: postgres
-  policyTypes: ["Ingress"]
-  ingress:
-    - from:
-        - podSelector:
-            matchExpressions:
-              - key: app.kubernetes.io/component
-                operator: In
-                values: ["router","scheduler-consumer","scheduler-producer","migrate","db-init","saq-proxy"]
-              - key: app.kubernetes.io/instance
-                operator: In
-                values: ["hyperswitch-hml"]
-      ports:
-        - port: 5432
-          protocol: TCP
----
-# Source: hyperswitch-hml/templates/networkpolicy.yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: redis-ingress-1
+  name: redis-ingress-0
   labels:
     app.kubernetes.io/name: hyperswitch-hml
     app.kubernetes.io/instance: hyperswitch-hml
@@ -139,7 +106,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: superposition-ingress-2
+  name: superposition-ingress-1
   labels:
     app.kubernetes.io/name: hyperswitch-hml
     app.kubernetes.io/instance: hyperswitch-hml
@@ -172,7 +139,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: eventbus-ingress-3
+  name: eventbus-ingress-2
   labels:
     app.kubernetes.io/name: hyperswitch-hml
     app.kubernetes.io/instance: hyperswitch-hml
@@ -207,7 +174,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: eventbus-ingress-4
+  name: eventbus-ingress-3
   labels:
     app.kubernetes.io/name: hyperswitch-hml
     app.kubernetes.io/instance: hyperswitch-hml
@@ -240,7 +207,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: clickhouse-ingress-5
+  name: clickhouse-ingress-4
   labels:
     app.kubernetes.io/name: hyperswitch-hml
     app.kubernetes.io/instance: hyperswitch-hml

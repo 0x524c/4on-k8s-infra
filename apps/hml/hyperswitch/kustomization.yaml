@@ -6,6 +6,7 @@ namespace: hyperswitch
 
 resources:
   - namespace.yaml
+  - postgres-rds.yaml
   - ../../base/hyperswitch
 
 # The translator (Deployment, Service, NetworkPolicy and the db-init Job of its database). It stays off until the secrets

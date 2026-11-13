@@ -1,0 +1,15 @@
+# The database of the stack is HML's own RDS instance (hyperswitch-hml-db, Terraform rds.tf of the main repository), not a Postgres in
+# the cluster. Every service reaches it as host `postgres`, port 5432, so this Service carries that name and points at the instance.
+# `externalName` is the instance's endpoint: set it with `bash 4on-k8s-infra/scripts/hml-platform.sh db-host` after the instance exists
+# (the value below is the placeholder of a tree published before it did; validate.sh notes it, and the services wait for the database).
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  type: ExternalName
+  externalName: hyperswitch-hml-db.endpoint-not-set.invalid
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432

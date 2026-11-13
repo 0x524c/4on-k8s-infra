@@ -1,6 +1,7 @@
-# The one Argo CD project of the HML cluster: the deploy repository and the Woodpecker chart as sources, the namespaces
-# hyperswitch and woodpecker of this cluster as destinations, and only the cluster-scoped kinds the stack really has
-# (the namespace, the gp3 StorageClass, and Fluent Bit's read-only ClusterRole and its binding).
+# The one Argo CD project of the HML cluster: the deploy repository, the Woodpecker chart and the two SigNoz charts as sources,
+# the namespaces hyperswitch, woodpecker and signoz of this cluster as destinations, and only the cluster-scoped kinds the stack
+# really has (the namespace, the gp3 StorageClass, the ClusterRoles and their bindings of the log agent and of SigNoz, and the three
+# ClickHouse operator CRDs that the SigNoz chart installs).
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
@@ -11,11 +12,14 @@ spec:
   sourceRepos:
     - git@github.com:0x524c/4on-k8s-infra.git
     - ghcr.io/woodpecker-ci/helm
+    - https://charts.signoz.io
   destinations:
     - server: https://kubernetes.default.svc
       namespace: hyperswitch
     - server: https://kubernetes.default.svc
       namespace: woodpecker
+    - server: https://kubernetes.default.svc
+      namespace: signoz
   clusterResourceWhitelist:
     - group: ""
       kind: Namespace
@@ -25,6 +29,8 @@ spec:
       kind: ClusterRole
     - group: rbac.authorization.k8s.io
       kind: ClusterRoleBinding
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
   namespaceResourceWhitelist:
     - group: "*"
       kind: "*"

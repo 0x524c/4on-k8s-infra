@@ -1,0 +1,16 @@
+# Every pod of the namespace signoz (ClickHouse, ZooKeeper, the SigNoz service, its collector and the log agent) accepts traffic
+# from the pods of this namespace only. The reason is the ClickHouse account of the SigNoz chart: the chart takes its password
+# only as a plain value, so the tree keeps the chart's published one, and no other namespace may reach ClickHouse's ports.
+# The UI is not exposed (ClusterIP, no ingress) and is reached with `kubectl port-forward`, which does not pass through a
+# NetworkPolicy. The log agent reads the files of its own node and calls the Kubernetes API, and no pod of another namespace
+# calls SigNoz, so no rule from outside is needed. Egress is not restricted (the images and the chart's schema migrations).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: signoz-default-deny-ingress
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector: {}

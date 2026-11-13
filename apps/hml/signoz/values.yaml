@@ -1,0 +1,32 @@
+# HML sizing of SigNoz (the cluster has one node of 4 vCPU and 16 GiB; see Docs/Arquitetura/hml-gitops-argocd-woodpecker-2026-11-12.md,
+# section Capacity). The volumes use the gp3 StorageClass that the Application hyperswitch-hml makes, so that Application is
+# synced first.
+global:
+  storageClass: gp3
+clusterName: hyperswitch-hml
+
+clickhouse:
+  persistence:
+    size: 30Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      memory: 3Gi
+
+signoz:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+otelCollector:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi

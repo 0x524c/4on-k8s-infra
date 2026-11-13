@@ -1,0 +1,10 @@
+# HML sizing of the log agent (one pod per node; the cluster has one node).
+clusterName: hyperswitch-hml
+
+otelAgent:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi

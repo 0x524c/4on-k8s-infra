@@ -1,0 +1,43 @@
+# The log collector of the HML cluster: chart k8s-infra 0.17.1 (otel agent 0.139.0) from https://charts.signoz.io, installed by the
+# Argo CD Application `signoz-k8s-infra` (apps/hml/argocd-apps) with this file and then apps/hml/signoz/k8s-infra-values.yaml.
+#
+# It replaces the Fluent Bit DaemonSet of the HML chart (plan decision H12): one agent per node tails the containers of the
+# namespace hyperswitch only and sends each line to the SigNoz collector of this cluster, over OTLP/gRPC inside the cluster.
+# Logs only: no host, kubelet or cluster metrics, and no cluster-wide Deployment. Nothing here has an AWS credential.
+otelCollectorEndpoint: signoz-otel-collector.signoz.svc.cluster.local:4317
+otelInsecure: true
+
+presets:
+  otlpExporter:
+    enabled: true
+  otlphttpExporter:
+    enabled: false
+  logsCollection:
+    enabled: true
+    startAt: end
+    includeFilePath: true
+    blacklist:
+      enabled: false
+    whitelist:
+      enabled: true
+      signozLogs: false
+      namespaces:
+        - hyperswitch
+      pods: []
+      containers: []
+      additionalInclude: []
+  hostMetrics:
+    enabled: false
+  kubeletMetrics:
+    enabled: false
+  clusterMetrics:
+    enabled: false
+  kubernetesAttributes:
+    enabled: true
+  resourceDetection:
+    enabled: true
+
+otelAgent:
+  enabled: true
+otelDeployment:
+  enabled: false

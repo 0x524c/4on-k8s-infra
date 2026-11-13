@@ -31,6 +31,8 @@ bad=""
 grep -q '^validate: all checks passed' <<<"$out" || bad+="[no closing line] "
 grep -q '^ok       with the translator component switched on the overlay adds 4 objects' <<<"$out" || bad+="[translator component not built] "
 grep -q '^ok       the base and the translator component equal a fresh render of the chart' <<<"$out" || bad+="[render check not run] "
+grep -q '^ok       the container logs go to SigNoz ' <<<"$out" || bad+="[SigNoz check not run] "
+grep -q '^ok       apps/hml/signoz-network builds' <<<"$out" || bad+="[signoz-network not built] "
 check "validate.sh passes on the tree: overlays and the translator component build, the Jobs are hooks, the isolation rules hold, the base equals the chart" "$bad" "$out"
 
 mutate() { # <name> <expected message> <shell snippet run in the copy's root>
@@ -51,8 +53,20 @@ mutate "a private key" "a private key or an access key id is in the tree" "echo 
 mutate "a host under rlrobotics.com.br" "a host under rlrobotics.com.br is named in the tree" "echo 'host: x.rlrobotics.com.br' >apps/hml/note.yaml"
 mutate "a Job that is not an Argo CD hook" "Jobs that are not Argo CD sync hooks" \
   "sed -i '/^patches:/,/kind: Job/d' apps/hml/hyperswitch/kustomization.yaml"
+mutate "an overlay without the Service postgres" "the overlay must define exactly one Service named postgres" \
+  "sed -i '/postgres-rds.yaml/d' apps/hml/hyperswitch/kustomization.yaml"
 mutate "a second deploy repository" "the Argo CD project and applications name 2 repositories" \
   "sed -i '0,/git@github.com:0x524c\\/4on-k8s-infra.git/s//git@github.com:0x524c\\/other.git/' apps/hml/argocd-apps/applications.yaml"
+mutate "a SigNoz chart that is not pinned to a version" "must pin the chart to an exact version" \
+  "sed -i 's/targetRevision: 0.149.0/targetRevision: \"*\"/' apps/hml/argocd-apps/applications.yaml"
+mutate "an exposed SigNoz UI" "the SigNoz UI must stay unexposed" \
+  "sed -i 's/^    type: ClusterIP/    type: LoadBalancer/' apps/base/signoz/values.yaml"
+mutate "a log agent that collects another namespace" "the log agent must collect the namespace hyperswitch only" \
+  "sed -i 's/^        - hyperswitch\$/        - kube-system/' apps/base/signoz/k8s-infra-values.yaml"
+mutate "a log agent that sends out of the cluster" "the log agent must send to the SigNoz collector of this cluster" \
+  "sed -i 's/^otelCollectorEndpoint: .*/otelCollectorEndpoint: ingest.eu.signoz.cloud:443/' apps/base/signoz/k8s-infra-values.yaml"
+mutate "Fluent Bit back in the tree" "Fluent Bit or a CloudWatch log output is still in the tree" \
+  "printf '# fluent-bit\n' >apps/hml/signoz/fluent.yaml"
 
 # ----------------------------------------------------------------------------- render-base.sh
 
@@ -97,6 +111,7 @@ a="\$*"
 case "\$a" in
   *"sts get-caller-identity"*) echo 405712027313 ;;
   *"eks describe-cluster"*) echo ACTIVE ;;
+  *"rds describe-db-instances"*) echo hyperswitch-hml-db.abc123xyz.sa-east-1.rds.amazonaws.com ;;
   *"eks update-kubeconfig"*) k=\${a##*--kubeconfig }; echo "apiVersion: v1" >"\${k%% *}" ;;
   *"secretsmanager get-secret-value"*) id=\$(sed -E 's/.*--secret-id hyperswitch-hml\/([A-Z_]+).*/\1/' <<<"\$a"); f="$FAKE/state/secrets/\$id"
      if [ -f "\$f" ]; then cat "\$f"; else echo "An error occurred (ResourceNotFoundException) when calling the GetSecretValue operation" >&2; exit 254; fi ;;
@@ -109,6 +124,7 @@ cat >"$FAKE/kubectl.sh" <<EOF
 a="\$*"
 case "\$a" in
   *"kustomize "*) exec $REAL_KUBECTL kustomize "\${a##*kustomize }" ;;
+  *"get service signoz"*) [ -f "$FAKE/state/signoz-synced" ] || exit 1 ;;
   *"get namespace"*) exit 1 ;;
   *"create secret generic"*) echo '{"apiVersion":"v1","kind":"Secret","metadata":{"name":"fake"},"data":{}}' ;;
   *" apply "*) cat >/dev/null ;;
@@ -129,7 +145,7 @@ grep -q '^ok        helm template of argo-cd 10.18.0' <<<"$out" || bad+="[no hel
 grep -q '^plan      would install the Helm release argocd (chart 10.18.0)' <<<"$out" || bad+="[no argo install plan] "
 grep -q '^plan      would generate an ed25519 key pair' <<<"$out" || bad+="[no key plan] "
 grep -q '^waiting   the GitHub OAuth app of Woodpecker' <<<"$out" || bad+="[OAuth not waiting] "
-grep -q '^plan      would apply the Argo CD project hml and the applications hyperswitch-hml and woodpecker' <<<"$out" || bad+="[no applications plan] "
+grep -q '^plan      would apply the Argo CD project hml and the applications hyperswitch-hml, woodpecker, signoz and signoz-k8s-infra' <<<"$out" || bad+="[no applications plan] "
 grep -q '^hml-platform: plan only\. Apply it with: bash .*/hml-platform.sh --apply$' <<<"$out" || bad+="[no closing line] "
 [ ! -s "$FAKE/writes.log" ] || bad+="[Secrets Manager writes in a plan] "
 grep -E ' (upgrade|create|apply|patch|delete) ' "$FAKE/calls.log" | grep -v 'kubectl .*kustomize' | grep -q . && bad+="[a write call in a plan: $(grep -E ' (upgrade|create|apply|patch|delete) ' "$FAKE/calls.log" | head -n 1)] "
@@ -160,6 +176,31 @@ bad=""
 [ "$(cat "$FAKE/state/secrets/ARGOCD_DEPLOY_KEY")" = "$before" ] || bad+="[the deploy key was overwritten] "
 grep -q '^exists    secret hyperswitch-hml/ARGOCD_DEPLOY_KEY (has a value; never overwritten)' <<<"$out" || bad+="[no exists line] "
 check "hml-platform.sh --apply again: the stored deploy key and agent secret are kept, never overwritten" "$bad" "$out"
+
+copy_tree
+out=$(cd "$SCRATCH/t" && PATH="$FAKE/bin:$PATH" AWS_PROFILE=rlr bash "$SCRATCH/t/scripts/hml-platform.sh" db-host 2>&1) && rc=0 || rc=$?
+bad=""
+[ "$rc" = 0 ] || bad+="[rc $rc: $out] "
+grep -q '^  externalName: hyperswitch-hml-db.abc123xyz.sa-east-1.rds.amazonaws.com$' "$SCRATCH/t/apps/hml/hyperswitch/postgres-rds.yaml" || bad+="[endpoint not written] "
+grep -q 'rds describe-db-instances --db-instance-identifier hyperswitch-hml-db ' "$FAKE/calls.log" || bad+="[not HML's own instance] "
+grep -q 'rds describe-db-instances --db-instance-identifier hyperswitch-db' "$FAKE/calls.log" && bad+="[production instance named] "
+out2=$(K8S_INFRA_TREE=$SCRATCH/t VALIDATE_SKIP_SCHEMA=1 bash "$TREE/scripts/validate.sh" 2>&1 || true)
+grep -q '^ok       the Service postgres points at hyperswitch-hml-db.abc123xyz' <<<"$out2" || bad+="[validate does not accept the written endpoint] "
+check "hml-platform.sh db-host: writes the endpoint of HML's own RDS instance (never production's) into the overlay's Service postgres, which validate.sh then accepts without the placeholder note" "$bad" "$out"
+
+: >"$FAKE/calls.log"
+out=$(plat signoz) && rc=0 || rc=$?
+bad=""
+[ "$rc" != 0 ] || bad+="[opened before the application was synced] "
+grep -q '^FAILED    no service signoz in namespace signoz: sync it first' <<<"$out" || bad+="[no sync-first message: $out] "
+grep -q 'port-forward' "$FAKE/calls.log" && bad+="[a port-forward before the application was synced] "
+touch "$FAKE/state/signoz-synced"
+out=$(plat signoz) && rc=0 || rc=$?
+[ "$rc" = 0 ] || bad+="[rc $rc: $out] "
+grep -q '^ok        SigNoz is at http://localhost:18080 until Ctrl+C closes this command' <<<"$out" || bad+="[no URL line] "
+grep -q 'kubectl .*port-forward svc/signoz -n signoz 18080:8080' "$FAKE/calls.log" || bad+="[no port-forward of svc/signoz] "
+grep -E ' (apply|patch|delete|create|edit) ' "$FAKE/calls.log" | grep -q . && bad+="[a write call] "
+check "hml-platform.sh signoz: refuses until the Application is synced, then forwards localhost:18080 to the service signoz (read-only, no write call)" "$bad"
 
 # ----------------------------------------------------------------------------- publish.sh
 

@@ -14,7 +14,10 @@
 #   bash 4on-k8s-infra/scripts/hml-platform.sh sync [APP]         asks Argo CD to sync an application (default hyperswitch-hml)
 #                                                                  and waits until it is Synced and Healthy
 #   bash 4on-k8s-infra/scripts/hml-platform.sh token              makes the project role token of the Woodpecker workflow
+#   bash 4on-k8s-infra/scripts/hml-platform.sh db-host            reads the endpoint of HML's RDS instance (hyperswitch-hml-db) and writes it into
+#                                                                  apps/hml/hyperswitch/postgres-rds.yaml; then publish and sync
 #   bash 4on-k8s-infra/scripts/hml-platform.sh status             read-only: the applications, sync and health
+#   bash 4on-k8s-infra/scripts/hml-platform.sh signoz             opens the SigNoz UI at http://localhost:18080 (port-forward; Ctrl+C closes it)
 #
 # Steps of --apply, in this order:
 #   1. argo-cd       helm upgrade --install of the chart argo-cd (pinned) with apps/base and apps/hml values, namespace argocd
@@ -48,7 +51,7 @@ die() { printf 'FAILED    %s\n' "$*" >&2; exit 1; }
 for a in "$@"; do
   case "$a" in
     --apply) APPLY=1 ;;
-    plan | set-github-oauth | sync | token | status) CMD=$a ;;
+    plan | set-github-oauth | sync | token | status | db-host | signoz) CMD=$a ;;
     -h | --help) sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]}" | sed -n 's/^# \{0,1\}//p' | head -n 30; exit 0 ;;
     *) ARGS+=("$a") ;;
   esac
@@ -186,11 +189,11 @@ step_woodpecker() {
 step_applications() {
   if [ "$APPLY" != 1 ]; then
     k kustomize "$TREE/apps/hml/argocd-apps" >/dev/null 2>"$TMP/kz.err" || die "kustomize build of apps/hml/argocd-apps: $(head -n 2 "$TMP/kz.err")"
-    say plan "would apply the Argo CD project hml and the applications hyperswitch-hml and woodpecker (no sync)"
+    say plan "would apply the Argo CD project hml and the applications hyperswitch-hml, woodpecker, signoz and signoz-k8s-infra (no sync)"
     return 0
   fi
   k kustomize "$TREE/apps/hml/argocd-apps" | k apply --server-side --force-conflicts --field-manager=hml-platform -f - >/dev/null || die "apply of apps/hml/argocd-apps"
-  say ok "Argo CD project hml and applications hyperswitch-hml and woodpecker applied (not synced)"
+  say ok "Argo CD project hml and applications hyperswitch-hml, woodpecker, signoz and signoz-k8s-infra applied (not synced)"
 }
 
 cmd_plan() {
@@ -247,6 +250,24 @@ cmd_token() {
   say created "secret $SMP/ARGOCD_DEPLOYER_TOKEN (never printed). Add it to Woodpecker as the secret argocd_token of the repository (Woodpecker UI > repository > Settings > Secrets)"
 }
 
+cmd_db_host() {
+  local id=$SMP-db host file=$TREE/apps/hml/hyperswitch/postgres-rds.yaml
+  guard
+  host=$(aws_ rds describe-db-instances --db-instance-identifier "$id" --query 'DBInstances[0].Endpoint.Address' --output text 2>"$TMP/rds.err") \
+    || die "rds describe-db-instances $id: $(tail -n 1 "$TMP/rds.err")"
+  [[ "$host" =~ ^[a-z0-9-]+\.[a-z0-9]+\.[a-z0-9-]+\.rds\.amazonaws\.com$ ]] || die "instance $id has no usable endpoint yet ('$host'); is it available?"
+  grep -q '^  externalName: ' "$file" || die "no externalName line in $file"
+  sed -i "s|^  externalName: .*|  externalName: $host|" "$file"
+  say ok "apps/hml/hyperswitch/postgres-rds.yaml: externalName is $host. Publish and sync: bash $HERE/publish.sh --apply, then bash $HERE/hml-platform.sh sync"
+}
+
+cmd_signoz() {
+  guard
+  k get service signoz -n signoz >/dev/null 2>&1 || die "no service signoz in namespace signoz: sync it first (bash $HERE/hml-platform.sh sync signoz, then sync signoz-k8s-infra)"
+  say ok "SigNoz is at http://localhost:18080 until Ctrl+C closes this command. The first user to register there becomes its administrator"
+  k port-forward svc/signoz -n signoz 18080:8080
+}
+
 cmd_status() {
   guard
   k get applications.argoproj.io -n argocd -o custom-columns='APP:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status,REVISION:.status.sync.revision' 2>&1
@@ -258,4 +279,6 @@ case "$CMD" in
   sync) cmd_sync ;;
   token) cmd_token ;;
   status) cmd_status ;;
+  signoz) cmd_signoz ;;
+  db-host) cmd_db_host ;;
 esac
